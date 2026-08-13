@@ -6,8 +6,11 @@ use zeroize::Zeroize;
 
 use crate::vault::{self, Entry, UnlockedVault};
 
+pub const ICON_PNG: &[u8] = include_bytes!("../icon.png");
+
 pub struct VaultApp {
     screen: Screen,
+    icon: egui::TextureHandle,
 }
 
 enum Screen {
@@ -80,21 +83,39 @@ impl UnlockedState {
 }
 
 impl VaultApp {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         Self {
             screen: Screen::Locked(LockedState {
                 is_new: !vault::exists(),
                 ..Default::default()
             }),
+            icon: load_app_icon(&cc.egui_ctx),
         }
     }
+}
+
+fn load_app_icon(ctx: &egui::Context) -> egui::TextureHandle {
+    let image = image::load_from_memory(ICON_PNG)
+        .expect("app icon")
+        .resize_exact(128, 128, image::imageops::FilterType::Lanczos3);
+    let rgba = image.into_rgba8();
+    let size = [rgba.width() as usize, rgba.height() as usize];
+    let color_image = egui::ColorImage::from_rgba_unmultiplied(size, rgba.as_raw());
+    ctx.load_texture("app-icon", color_image, Default::default())
+}
+
+fn brand_heading(ui: &mut egui::Ui, icon: &egui::TextureHandle, size: f32) {
+    ui.horizontal(|ui| {
+        ui.add(egui::Image::new(icon).fit_to_exact_size(egui::vec2(size, size)));
+        ui.heading(RichText::new("BlobVault").size(size));
+    });
 }
 
 impl eframe::App for VaultApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let next = match &mut self.screen {
-            Screen::Locked(state) => locked_ui(ctx, state),
-            Screen::Unlocked(state) => unlocked_ui(ctx, state),
+            Screen::Locked(state) => locked_ui(ctx, state, &self.icon),
+            Screen::Unlocked(state) => unlocked_ui(ctx, state, &self.icon),
         };
         if let Some(next) = next {
             self.screen = next;
@@ -103,7 +124,11 @@ impl eframe::App for VaultApp {
     }
 }
 
-fn locked_ui(ctx: &egui::Context, state: &mut LockedState) -> Option<Screen> {
+fn locked_ui(
+    ctx: &egui::Context,
+    state: &mut LockedState,
+    icon: &egui::TextureHandle,
+) -> Option<Screen> {
     // Poll the background unlock thread, if one is running.
     let mut unlocked: Option<UnlockedVault> = None;
     if let Some(rx) = &state.pending {
@@ -131,7 +156,7 @@ fn locked_ui(ctx: &egui::Context, state: &mut LockedState) -> Option<Screen> {
     egui::CentralPanel::default().show(ctx, |ui| {
         ui.vertical_centered(|ui| {
             ui.add_space(80.0);
-            ui.heading(RichText::new("🔒 BlobVault").size(28.0));
+            brand_heading(ui, icon, 28.0);
             ui.add_space(4.0);
             ui.label(if state.is_new {
                 "Create a master password to set up your vault."
@@ -273,7 +298,11 @@ fn start_unlock(state: &mut LockedState) {
     state.pending = Some(rx);
 }
 
-fn unlocked_ui(ctx: &egui::Context, state: &mut UnlockedState) -> Option<Screen> {
+fn unlocked_ui(
+    ctx: &egui::Context,
+    state: &mut UnlockedState,
+    icon: &egui::TextureHandle,
+) -> Option<Screen> {
     let mut lock = false;
     let mut dirty = false;
     let mut to_delete: Option<usize> = None;
@@ -284,7 +313,7 @@ fn unlocked_ui(ctx: &egui::Context, state: &mut UnlockedState) -> Option<Screen>
     egui::TopBottomPanel::top("top_bar").show(ctx, |ui| {
         ui.add_space(6.0);
         ui.horizontal(|ui| {
-            ui.heading("🔒 BlobVault");
+            brand_heading(ui, icon, 18.0);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if ui.button("Lock").clicked() {
                     lock = true;
@@ -371,6 +400,10 @@ fn unlocked_ui(ctx: &egui::Context, state: &mut UnlockedState) -> Option<Screen>
                 if entries.is_empty() {
                     ui.add_space(40.0);
                     ui.vertical_centered(|ui| {
+                        ui.add(
+                            egui::Image::new(icon).fit_to_exact_size(egui::vec2(96.0, 96.0)),
+                        );
+                        ui.add_space(12.0);
                         ui.label(RichText::new("No accounts yet.").weak());
                         ui.label(RichText::new("Add one below to get started.").weak());
                     });
